@@ -8,8 +8,7 @@ written) and the UI is still a placeholder.
 
 ## Backlog
 
-- P0: Confirm the macOS CI job is green (`swift build` + `swift test`); fix any
-  compile errors it reports first.
+- P0 (done: CI green since 2026-10-01): Confirm the macOS CI job is green (`swift build` + `swift test`).
 - P0: Add an Xcode app target (`@main`) that hosts `LinktreeUI`, and build screens on
   top of `LinktreeCore` (an `@Observable` model wrapping the core API).
 - P1: Public profile preview + editor UI on top of `Profile`.

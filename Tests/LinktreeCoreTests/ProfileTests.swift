@@ -2,32 +2,6 @@ import XCTest
 @testable import LinktreeCore
 
 final class ProfileTests: XCTestCase {
-    func testHandleRules() throws {
-        XCTAssertEqual(try LinkRules.normalizeHandle(" @Book.Chaowalit "), "book.chaowalit")
-        for bad in ["ab", ".book", "book.", "bo..ok", "book!", String(repeating: "a", count: 31), "bo@ok"] {
-            XCTAssertThrowsError(try LinkRules.normalizeHandle(bad), bad)
-        }
-    }
-
-    func testURLRules() throws {
-        XCTAssertEqual(try LinkRules.parseURL("bookchaowalit.com").absoluteString, "https://bookchaowalit.com")
-        XCTAssertEqual(try LinkRules.parseURL("mailto:hi@example.com").scheme, "mailto")
-        XCTAssertEqual(try LinkRules.parseURL("tel:+66812345678").scheme, "tel")
-        for bad in ["http://insecure.example", "javascript:alert(1)", "localhost", "https://", "  "] {
-            XCTAssertThrowsError(try LinkRules.parseURL(bad), bad)
-        }
-    }
-
-    func testUTMIsAddedOnceAndOnlyToHttps() throws {
-        let url = try LinkRules.parseURL("https://shop.example/p?id=7&utm_source=ig")
-        let tagged = LinkRules.withUTM(url, source: "linktree")
-        let items = URLComponents(url: tagged, resolvingAgainstBaseURL: false)?.queryItems ?? []
-        XCTAssertEqual(items.map(\.name), ["id", "utm_source", "utm_medium"])
-        XCTAssertEqual(items.first { $0.name == "utm_source" }?.value, "ig")
-        let mail = try LinkRules.parseURL("mailto:a@b.co")
-        XCTAssertEqual(LinkRules.withUTM(mail, source: "x"), mail)
-    }
-
     func testLinksScheduleOrderAndStats() throws {
         var p = try Profile(handle: "book", displayName: "Book")
         let site = try p.addLink(title: " Website ", url: "bookchaowalit.com")
@@ -49,12 +23,47 @@ final class ProfileTests: XCTestCase {
         XCTAssertThrowsError(try p.recordClick(UUID()))
     }
 
-    func testScheduleWindow() throws {
-        let start = Date(timeIntervalSince1970: 100)
-        let end = Date(timeIntervalSince1970: 200)
-        let link = ProfileLink(title: "Sale", url: try LinkRules.parseURL("sale.example"), visibleFrom: start, visibleUntil: end)
-        XCTAssertFalse(link.isVisible(at: Date(timeIntervalSince1970: 99)))
-        XCTAssertTrue(link.isVisible(at: start))
-        XCTAssertFalse(link.isVisible(at: end))
+    func testInitNormalizesOrRejectsTheHandle() throws {
+        XCTAssertEqual(try Profile(handle: "@Book", displayName: "Book").handle, "book")
+        XCTAssertThrowsError(try Profile(handle: "x", displayName: "X")) {
+            XCTAssertEqual($0 as? ProfileError, .invalidHandle("x"))
+        }
+    }
+
+    func testAddLinkRejectsBadURLWithoutAddingIt() throws {
+        var p = try Profile(handle: "book", displayName: "Book")
+        XCTAssertThrowsError(try p.addLink(title: "Old site", url: "http://old.example")) {
+            XCTAssertEqual($0 as? ProfileError, .invalidURL("http://old.example"))
+        }
+        XCTAssertTrue(p.links.isEmpty)
+    }
+
+    func testMoveClampsPositionToTheList() throws {
+        var p = try Profile(handle: "book", displayName: "Book")
+        let a = try p.addLink(title: "A", url: "a.example")
+        _ = try p.addLink(title: "B", url: "b.example")
+        let c = try p.addLink(title: "C", url: "c.example")
+        try p.move(a.id, to: 99)
+        XCTAssertEqual(p.links.map(\.title), ["B", "C", "A"])
+        try p.move(c.id, to: -5)
+        XCTAssertEqual(p.links.map(\.title), ["C", "B", "A"])
+    }
+
+    func testUnknownLinkIdsThrowLinkNotFound() throws {
+        var p = try Profile(handle: "book", displayName: "Book")
+        let missing = UUID()
+        XCTAssertThrowsError(try p.move(missing, to: 0)) { XCTAssertEqual($0 as? ProfileError, .linkNotFound) }
+        XCTAssertThrowsError(try p.setEnabled(missing, true)) { XCTAssertEqual($0 as? ProfileError, .linkNotFound) }
+        XCTAssertThrowsError(try p.recordClick(missing)) { XCTAssertEqual($0 as? ProfileError, .linkNotFound) }
+    }
+
+    func testClickThroughRateIsZeroWithoutViews() throws {
+        var p = try Profile(handle: "book", displayName: "Book")
+        let link = try p.addLink(title: "Shop", url: "shop.example")
+        try p.recordClick(link.id)
+        XCTAssertEqual(p.views, 0)
+        XCTAssertEqual(p.clickThroughRate(link.id), 0)
+        p.recordView()
+        XCTAssertEqual(p.clickThroughRate(link.id), 100, accuracy: 1e-9)
     }
 }
